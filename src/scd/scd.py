@@ -31,7 +31,7 @@ def getCmdLineParser():
    parser = argparse.ArgumentParser(description=desc)
 
    parser.add_argument('-c', '--current_state', help='current state data')
-   parser.add_argument('-i', '--input', help='new input data')
+   parser.add_argument('-n', '--new_state', help='new state')
 
    return parser
 
@@ -62,35 +62,40 @@ def main(argv):
    to_boolean_udf = udf(to_boolean, BooleanType())
    
    
-   # Consturct the current state off the input file
+   # consturct the current state off the input file
    current_state_raw_schema = StructType([
 	   StructField("id", IntegerType(), True),
-	   StructField("attr", StringType(), True),
+	   StructField("attribute", StringType(), True),
 	   StructField("is_current", StringType(), True),
 	   StructField("is_deleted", StringType(), True),
 	   StructField("active_date", TimestampType(), True),
 	   StructField("inactive_date", TimestampType(), True)
    ])
    
+   # read the current state in 
+   df_current_state_raw = sqlContext \
+      .read \
+      .csv(args.current_state, schema = current_state_raw_schema)
    
-   df_current_state_raw = sqlContext.read.csv(args.current_state, schema = current_state_raw_schema)
-   df_current_state = df_current_state_raw.withColumn('is_current', to_boolean_udf(df_current_state_raw.is_current)).withColumn('is_deleted', to_boolean_udf(df_current_state_raw.is_deleted))
+   # change strings 'True' and 'False' to Boolean types true and false using a UDF
+   df_current_state = df_current_state_raw \
+      .withColumn('is_current', to_boolean_udf(df_current_state_raw.is_current)) \
+      .withColumn('is_deleted', to_boolean_udf(df_current_state_raw.is_deleted)) 
+   
    df_current_state.show(df_current_state.count(), False)
    df_current_state.printSchema() 
   
   
 
-   # Construct the new input
-
-   input_raw_schema = StructType([
-      StructField("input_id", IntegerType(), True),
-      StructField("input_attr", StringType(), True)
+   # read in the new state
+   new_state_raw_schema = StructType([
+      StructField("new_state_id", IntegerType(), True),
+      StructField("new_state_attribute", StringType(), True)
    ])
 
-   df_input_raw = sqlContext.read.csv(args.input, schema = input_raw_schema)
-
-   df_input_raw.show(df_input_raw.count(), False)
-   df_input_raw.printSchema()
+   df_new_state_raw = sqlContext.read.csv(args.new_state, schema = new_state_raw_schema)
+   df_new_state_raw.show(df_new_state_raw.count(), False)
+   df_new_state_raw.printSchema()
    
    high_time = datetime.strptime('3001-01-01 00:00:00.000000', '%Y-%m-%d %H:%M:%S.%f')
    print(high_time)
@@ -98,16 +103,16 @@ def main(argv):
    print(current_time)
    
    
-   # Prepare for merge - Added effective and end date
-   df_input = df_input_raw.withColumn('input_active_date', lit(current_time)).withColumn('input_inactive_date', lit(high_time))
+   # Prepare for merge - Added active date (now) and inactive date (high time)
+   df_new_state = df_new_state_raw.withColumn('new_state_active_date', lit(current_time)).withColumn('new_state_inactive_date', lit(high_time))
 
-   # FULL Merge, join on key column and also high time column to make only join to the latest records
-   df_merge = df_current_state.join(df_input, (df_input.input_id == df_current_state.id) & (df_input.input_inactive_date == df_current_state.inactive_date), how='fullouter')
+   # Full outer join: join on key column and also inactive time column to make only join to the latest records
+   df_merge = df_current_state.join(df_new_state, (df_new_state.new_state_id == df_current_state.id) & (df_new_state.new_state_inactive_date == df_current_state.inactive_date), how='fullouter')
 
    # Derive new column to indicate the action
    df_merge = df_merge.withColumn('action',
-      when(df_merge.attr != df_merge.input_attr, 'UPSERT')
-         .when(df_merge.input_id.isNull() & df_merge.is_current, 'DELETE')
+      when(df_merge.attribute != df_merge.new_state_attribute, 'UPSERT')
+         .when(df_merge.new_state_id.isNull() & df_merge.is_current, 'DELETE')
          .when(df_merge.id.isNull(), 'INSERT')
          .otherwise('NOACTION')
    )
@@ -115,24 +120,25 @@ def main(argv):
    df_merge.show(df_merge.count(),False)
 
    # Generate the new data frames based on action code
-   column_names = ['id', 'attr', 'is_current', 'is_deleted', 'active_date', 'inactive_date']
+   column_names = ['id', 'attribute', 'is_current', 'is_deleted', 'active_date', 'inactive_date']
 
    # For records that needs no action
    df_no_action = df_merge.filter(df_merge.action == 'NOACTION').select(column_names)
 
    # For records that needs insert only
    df_insert = df_merge.filter(df_merge.action == 'INSERT').select(
-      df_merge.input_id.alias('id'),
-      df_merge.input_attr.alias('attr'),
+      df_merge.new_state_id.alias('id'),
+      df_merge.new_state_attribute.alias('attribute'),
          lit(True).alias('is_current'),
          lit(False).alias('is_deleted'),
-         df_merge.input_active_date.alias('active_date'), 
-         df_merge.input_inactive_date.alias('inactive_date')
+         df_merge.new_state_active_date.alias('active_date'), 
+         df_merge.new_state_inactive_date.alias('inactive_date')
    )
+   
    # For records that needs to be deleted
    df_delete = df_merge.filter(df_merge.action == 'DELETE').select(
       df_merge.id.alias('id'),
-      df_merge.attr.alias('attr'),
+      df_merge.attribute.alias('attribute'),
       lit(False).alias('is_current'),
       lit(True).alias('is_deleted'),
       df_merge.active_date.alias('active_date'),
@@ -141,18 +147,26 @@ def main(argv):
 
    # For records that needs to be expired and then inserted
    df_upsert_expired_inserted = df_merge.filter(df_merge.action == 'UPSERT').select(
-      df_merge.input_id.alias('id'),
-      df_merge.input_attr.alias('attr'),
+      df_merge.new_state_id.alias('id'),
+      df_merge.new_state_attribute.alias('attribute'),
       lit(True).alias('is_current'),
       lit(False).alias('is_deleted'),
-      df_merge.input_active_date.alias('active_date'),
-      df_merge.input_inactive_date.alias('inactive_date')
+      df_merge.new_state_active_date.alias('active_date'),
+      df_merge.new_state_inactive_date.alias('inactive_date')
    )
 
-   df_upsert_expired = df_merge.filter(df_merge.action == 'UPSERT').withColumn('inactive_date', df_merge.input_active_date).withColumn('is_current', lit(False)).withColumn('is_deleted', lit(False)).select(column_names)
+   # for new records that need to be inserted
+   df_upsert_expired = df_merge \
+      .filter(df_merge.action == 'UPSERT') \
+      .withColumn('inactive_date', df_merge.new_state_active_date).withColumn('is_current', lit(False)) \
+      .withColumn('is_deleted', lit(False)) \
+      .select(column_names)
 
    # Union all records together
-   df_merge_final = df_no_action.unionAll(df_insert).unionAll(df_delete).unionAll(df_upsert_expired_inserted).unionAll(df_upsert_expired)
+   df_merge_final = df_no_action \
+      .unionAll(df_insert).unionAll(df_delete) \
+      .unionAll(df_upsert_expired_inserted) \
+      .unionAll(df_upsert_expired)
    
    df_merge_final.orderBy(['id', 'active_date']).show(df_merge_final.count(), False)
    
