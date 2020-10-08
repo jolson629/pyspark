@@ -118,7 +118,7 @@ These rows need to spawn two rows in the target data set:
 These rows need to be added to the target data set from the existing side of the full outer join, with the is_deleted flag set to 'True' and the state inactive date set to the current time.
 
 
-Finally, the four above resulting data sets get unioned together into a single data frame, which can be written to a table using the [Spark Dataframe write jdbc method](https://spark.apache.org/docs/latest/api/python/pyspark.sql.html#pyspark.sql.DataFrameWriter.jdbc). Examples of Azure JDBC connectivity can be found [here](https://docs.microsoft.com/en-us/azure/databricks/data/data-sources/sql-databases). The delta lake documentation can be found [here](https://docs.delta.io/0.4.0/api/python/index.html)
+Finally, the four above resulting data sets get unioned together into a single data frame, which can be written to a table using the [Spark Dataframe write jdbc method](https://spark.apache.org/docs/latest/api/python/pyspark.sql.html#pyspark.sql.DataFrameWriter.jdbc). Examples of Azure JDBC connectivity can be found [here](https://docs.microsoft.com/en-us/azure/databricks/data/data-sources/sql-databases). The delta lake Python documentation can be found [here](https://docs.delta.io/0.4.0/api/python/index.html)
 
 ## Conclusions
  
