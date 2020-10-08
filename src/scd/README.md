@@ -7,96 +7,98 @@ The purpose of this code is to prototype the implemenation of using PySpark to i
 The initial setup of this case contains a very small sample slowly changing dimension data set in its initial state:
 
 ```
-+---+---------+----------+----------+--------------------------+--------------------------+
-|id |attribute|is_current|is_deleted|active_date               |inactive_date             |
-+---+---------+----------+----------+--------------------------+--------------------------+
-|1  |blue     |false     |false     |2020-10-05 08:15:27.24386 |2020-10-05 10:22:31.938404|
-|1  |green    |true      |false     |2020-10-05 10:22:31.938404|3001-01-01 00:00:00       |
-|2  |red      |true      |false     |2020-10-05 08:15:27.314486|3001-01-01 00:00:00       |
-|3  |orange   |true      |false     |2020-10-05 08:15:27.440021|3001-01-01 00:00:00       |
-+---+---------+----------+----------+--------------------------+--------------------------+
++-------+--------------------+----------+----------+--------------------------+--------------------------+
+|user_id|address             |is_current|is_deleted|active_date               |inactive_date             |
++-------+--------------------+----------+----------+--------------------------+--------------------------+
+|1      |123 Anywhere Street |false     |false     |2020-10-05 08:15:27.24386 |2020-10-05 10:22:31.938404|
+|1      |999 Someother Street|true      |false     |2020-10-05 10:22:31.938404|3001-01-01 00:00:00       |
+|2      |1000 Spark Street   |true      |false     |2020-10-05 08:15:27.314486|3001-01-01 00:00:00       |
+|3      |1060 W Addison      |true      |false     |2020-10-05 08:15:27.440021|3001-01-01 00:00:00       |
++-------+--------------------+----------+----------+--------------------------+--------------------------+
+
 ```
 
-This consits of three items: 1,2, and 3 and an attribute. An item can be 'current' or 'deleted'. The state of an attribute is denoted by a color. The attribute for item 1 has previously changed states from 'blue' to 'green' at 2020-10-05 10:22:31.938404. 
+This consists of three user ids: 1,2, and 3...each with an address. The address is treated as a slowly changing dimension - it can change over time, and we want to preserve history. For example, user id 1 lived at 123 Anywhere Street from 2020-10-05 08:15:27.24386 to 2020-10-05 10:22:31.938404. At that time, the user moved to 999 Someother Street, where he currently resides. 
 
-For this exercise, the slowly changing dimension is represented as two columns: an active date that represents when the atrribute transitioned to the state, and the inactive date when the attribute transitioned out of the state. If the attribute is still in that state, the state's inactive date is represented by '3001-01-01 00:00:00' rather than a null. This will be refered to as the 'high time'.
+For this exercise, the slowly changing dimension is represented as two columns: an active date that represents when the address was active, and the inactive date when the address was no longer valid. If the address is currently valid, the inactive date is represented by '3001-01-01 00:00:00' rather than a null. '3001-01-01 00:00:00' will be refered to as the 'high time'.
 
-This dimension also consists of an 'is current' boolean, redundantly representing whether or not this state is the current state for the item, and a 'is deleted' boolean, representing a deleted state for the item.
+This implementation also consists of an 'is current' boolean, redundantly representing whether or not this address is the current address for the user, and a 'is deleted' boolean, representing if this address has been deleted.
  
  
-## State Change
-The following state changes arrive and need to be batch processed into the initial data set:
+## Address Updates
+The following address changes arrive and need to be batch processed into the initial data set:
 
 ```
-+------------+-------------------+
-|new_state_id|new_state_attribute|
-+------------+-------------------+
-|1           |green              |
-|2           |black              |
-|4           |yellow             |
-+------------+-------------------+
++-----------------+---------------------+
+|user_id          |address              |
++-----------------+---------------------+
+|1                |999 Someother Street |
+|2                |2000 Snowflake Street|
+|4                |233 S Wacker         |
++-----------------+---------------------+
 ```
 
-item 1 new state is 'green' - which it is already in, item 2 transitions to 'black', and new item 4 arrives in state 'yellow'. There is no record of item 3 in this batch state change, for this prototype it is assumed that means the item transitions to 'deleted'.
+User 1 has new address '999 Someother Street' - which his address already is, user 2's address changes to '2000 Snowflake Street', and new user id 4 arrives with address '233 S Wacker'. There is no record of user 3's address in this batch state change, for this prototype it is assumed that means the address should transition to 'deleted'.
 
 ## Expected Output
-The expected output upon batch processing the state changes on the initial slowly changing dimension:
+The expected output upon batch processing the address changes on the initial slowly changing dimension:
 
 ```
-+---+---------+----------+----------+--------------------------+--------------------------+
-|id |attribute|is_current|is_deleted|active_date               |inactive_date             |
-+---+---------+----------+----------+--------------------------+--------------------------+
-|1  |blue     |false     |false     |2020-10-05 08:15:27.24386 |2020-10-05 10:22:31.938404|
-|1  |green    |true      |false     |2020-10-05 10:22:31.938404|3001-01-01 00:00:00       |
-|2  |red      |false     |false     |2020-10-05 08:15:27.314486|2020-10-08 11:02:16.491847|
-|2  |black    |true      |false     |2020-10-08 11:02:16.491847|3001-01-01 00:00:00       |
-|3  |orange   |false     |true      |2020-10-05 08:15:27.440021|2020-10-08 11:02:16.491847|
-|4  |yellow   |true      |false     |2020-10-08 11:02:16.491847|3001-01-01 00:00:00       |
-+---+---------+----------+----------+--------------------------+--------------------------+
++-------+---------------------+----------+----------+--------------------------+--------------------------+
+|user_id|address              |is_current|is_deleted|active_date               |inactive_date             |
++-------+---------------------+----------+----------+--------------------------+--------------------------+
+|1      |123 Anywhere Street  |false     |false     |2020-10-05 08:15:27.24386 |2020-10-05 10:22:31.938404|
+|1      |999 Someother Street |true      |false     |2020-10-05 10:22:31.938404|3001-01-01 00:00:00       |
+|2      |1000 Spark Street    |false     |false     |2020-10-05 08:15:27.314486|2020-10-08 16:00:16.150026|
+|2      |2000 Snowflake Street|true      |false     |2020-10-08 16:00:16.150026|3001-01-01 00:00:00       |
+|3      |1060 W Addison       |false     |true      |2020-10-05 08:15:27.440021|2020-10-08 16:00:16.150026|
+|4      |233 S Wacker         |true      |false     |2020-10-08 16:00:16.150026|3001-01-01 00:00:00       |
++-------+---------------------+----------+----------+--------------------------+--------------------------+
 ```
 
-No change to item 1, despite the input which matches its current state. Item 2 transtions to 'black' at batch processing time, item 3 transitions to a deleted state, and new item 4 gets added with an initial state of 'yellow' with an active date of batch processing time.
+No change to user 1, despite the input which matches its current address. User 2's address changes to '2000 Snowflake Street' at batch processing time, The address for user id 3 changes to a deleted state, and new user 4 gets added with an initial address of '233 S Wacker' with an active date of batch processing time.
 
 ## Implementation
 
-The first step is cross joining the current time and the high time to the incoming state change data. Of course, in reality, the state change time may already be part of the incoming state change data. If that is the case, the cross join is not needed, and instead we use the change time provided.
+The first step is cross joining the current time and the high time to the incoming address change data. Of course, in reality, the state change time may already be part of the incoming state change data. If that is the case, the cross join is not needed, and instead we use the change time provided.
 
 ```
 +------------+-------------------+--------------------------+-----------------------+
-|new_state_id|new_state_attribute|new_state_active_date     |new_state_inactive_date|
+|new_user_id |new_address        |new_active_date           |new_inactive_date|
 +------------+-------------------+--------------------------+-----------------------+
-|1           |green              |2020-10-08 12:39:00.911139|3001-01-01 00:00:00    |
-|2           |black              |2020-10-08 12:39:00.911139|3001-01-01 00:00:00    |
-|4           |yellow             |2020-10-08 12:39:00.911139|3001-01-01 00:00:00    |
+|1           |999 Someother Stree|2020-10-08 16:00:16.150026|3001-01-01 00:00:00    |
+|2           |2000 Snowflake Stre|2020-10-08 16:00:16.150026|3001-01-01 00:00:00    |
+|4           |233 S Wacker       |2020-10-08 16:00:16.150026|3001-01-01 00:00:00    |
 +------------+-------------------+--------------------------+-----------------------+
 ```
 
-Next, we perform a full outer join on the current (initial) state and the state changes, with the join ids being the item id and inactive date:
+Next, we perform a full outer join on the current (initial) state and the address changes, with the join ids being the user id and inactive date:
 
 ```
-+----+---------+----------+----------+--------------------------+--------------------------+------------+-------------------+--------------------------+-----------------------+
-|id  |attribute|is_current|is_deleted|active_date               |inactive_date             |new_state_id|new_state_attribute|new_state_active_date     |new_state_inactive_date|
-+----+---------+----------+----------+--------------------------+--------------------------+------------+-------------------+--------------------------+-----------------------+
-|1   |blue     |false     |false     |2020-10-05 08:15:27.24386 |2020-10-05 10:22:31.938404|null        |null               |null                      |null                   |
-|1   |green    |true      |false     |2020-10-05 10:22:31.938404|3001-01-01 00:00:00       |1           |green              |2020-10-08 12:39:00.911139|3001-01-01 00:00:00    |
-|3   |orange   |true      |false     |2020-10-05 08:15:27.440021|3001-01-01 00:00:00       |null        |null               |null                      |null                   |
-|null|null     |null      |null      |null                      |null                      |4           |yellow             |2020-10-08 12:39:00.911139|3001-01-01 00:00:00    |
-|2   |red      |true      |false     |2020-10-05 08:15:27.314486|3001-01-01 00:00:00       |2           |black              |2020-10-08 12:39:00.911139|3001-01-01 00:00:00    |
-+----+---------+----------+----------+--------------------------+--------------------------+------------+-------------------+--------------------------+-----------------------+
++-------+--------------------+----------+----------+--------------------------+--------------------------+-----------------+---------------------+--------------------------+-----------------------+
+|user_id|address             |is_current|is_deleted|active_date               |inactive_date             |new_user_id      |new_user_address     |new_user_active_date      |new_user_inactive_date |
++-------+--------------------+----------+----------+--------------------------+--------------------------+-----------------+---------------------+--------------------------+-----------------------+
+|1      |123 Anywhere Street |false     |false     |2020-10-05 08:15:27.24386 |2020-10-05 10:22:31.938404|null             |null                 |null                      |null                   |
+|1      |999 Someother Street|true      |false     |2020-10-05 10:22:31.938404|3001-01-01 00:00:00       |1                |999 Someother Street |2020-10-08 16:00:16.150026|3001-01-01 00:00:00    |
+|3      |1060 W Addison      |true      |false     |2020-10-05 08:15:27.440021|3001-01-01 00:00:00       |null             |null                 |null                      |null                   |
+|null   |null                |null      |null      |null                      |null                      |4                |233 S Wacker         |2020-10-08 16:00:16.150026|3001-01-01 00:00:00    |
+|2      |1000 Spark Street   |true      |false     |2020-10-05 08:15:27.314486|3001-01-01 00:00:00       |2                |2000 Snowflake Street|2020-10-08 16:00:16.150026|3001-01-01 00:00:00    |
++-------+--------------------+----------+----------+--------------------------+--------------------------+-----------------+---------------------+--------------------------+-----------------------|
+
 ```
 
 Logic applied to both sides of the join results indicates how each row in the joined data set needs to be processed. This is represented by the 'action' column:
 
 ```
-+----+---------+----------+----------+--------------------------+--------------------------+------------+-------------------+--------------------------+-----------------------+--------+
-|id  |attribute|is_current|is_deleted|active_date               |inactive_date             |new_state_id|new_state_attribute|new_state_active_date     |new_state_inactive_date|action  |
-+----+---------+----------+----------+--------------------------+--------------------------+------------+-------------------+--------------------------+-----------------------+--------+
-|1   |blue     |false     |false     |2020-10-05 08:15:27.24386 |2020-10-05 10:22:31.938404|null        |null               |null                      |null                   |NOACTION|
-|1   |green    |true      |false     |2020-10-05 10:22:31.938404|3001-01-01 00:00:00       |1           |green              |2020-10-08 12:39:00.911139|3001-01-01 00:00:00    |NOACTION|
-|3   |orange   |true      |false     |2020-10-05 08:15:27.440021|3001-01-01 00:00:00       |null        |null               |null                      |null                   |DELETE  |
-|null|null     |null      |null      |null                      |null                      |4           |yellow             |2020-10-08 12:39:00.911139|3001-01-01 00:00:00    |INSERT  |
-|2   |red      |true      |false     |2020-10-05 08:15:27.314486|3001-01-01 00:00:00       |2           |black              |2020-10-08 12:39:00.911139|3001-01-01 00:00:00    |UPSERT  |
-+----+---------+----------+----------+--------------------------+--------------------------+------------+-------------------+--------------------------+-----------------------+--------+ 
++-------+--------------------+----------+----------+--------------------------+--------------------------+-----------------+---------------------+--------------------------+-----------------------+--------+
+|user_id|address             |is_current|is_deleted|active_date               |inactive_date             |new_user_id      |new_user_address     |new_user_active_date      |new_user_inactive_date |action  |
++-------+--------------------+----------+----------+--------------------------+--------------------------+-----------------+---------------------+--------------------------+-----------------------+--------+
+|1      |123 Anywhere Street |false     |false     |2020-10-05 08:15:27.24386 |2020-10-05 10:22:31.938404|null             |null                 |null                      |null                   |NOACTION|
+|1      |999 Someother Street|true      |false     |2020-10-05 10:22:31.938404|3001-01-01 00:00:00       |1                |999 Someother Street |2020-10-08 16:00:16.150026|3001-01-01 00:00:00    |NOACTION|
+|3      |1060 W Addison      |true      |false     |2020-10-05 08:15:27.440021|3001-01-01 00:00:00       |null             |null                 |null                      |null                   |DELETE  |
+|null   |null                |null      |null      |null                      |null                      |4                |233 S Wacker         |2020-10-08 16:00:16.150026|3001-01-01 00:00:00    |INSERT  |
+|2      |1000 Spark Street   |true      |false     |2020-10-05 08:15:27.314486|3001-01-01 00:00:00       |2                |2000 Snowflake Street|2020-10-08 16:00:16.150026|3001-01-01 00:00:00    |UPSERT  |
++-------+--------------------+----------+----------+--------------------------+--------------------------+-----------------+---------------------+--------------------------+-----------------------+--------+
 ```
 
 Filtering on that column, we have four seperate cases that need to be processed:
@@ -115,6 +117,8 @@ These rows need to spawn two rows in the target data set:
 ### DELETE
 These rows need to be added to the target data set from the existing side of the full outer join, with the is_deleted flag set to 'True' and the state inactive date set to the current time.
 
+
+Finally, the four above resulting data sets get unioned together into a single data frame, which can be written to disk.
 
 ## Conclusions
  
