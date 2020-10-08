@@ -106,6 +106,7 @@ def main(argv):
    # Prepare for merge - Added active date (now) and inactive date (high time)
    df_new_state = df_new_state_raw.withColumn('new_state_active_date', lit(current_time)).withColumn('new_state_inactive_date', lit(high_time))
 
+
    # Full outer join: join on key column and also inactive time column to make only join to the latest records
    df_merge = df_current_state.join(df_new_state, (df_new_state.new_state_id == df_current_state.id) & (df_new_state.new_state_inactive_date == df_current_state.inactive_date), how='fullouter')
 
