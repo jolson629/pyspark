@@ -134,7 +134,7 @@ This example also does not address writing via the Dataframe.write.jdbc method (
 
 The new inplace update functionality provided by the Delta Lake enhancement seems to only apply to Parquet files on disk - not to data via the .jdbc connector. See below.
 
-Non-perfect cases should also be looked at: the same update coming in multiple times erroneously, updates coming in out of order, late arriving updates, etc. 
+Non-perfect cases should also be looked at: the same update coming in multiple times erroneously, updates coming in out of order, late arriving updates, jobs failing, and needing to be restarted....etc. 
 
 
 ## References
