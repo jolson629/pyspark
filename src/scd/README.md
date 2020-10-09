@@ -64,7 +64,7 @@ The first step is cross joining the current time and the high time to the incomi
 
 ```
 +------------+-------------------+--------------------------+-----------------------+
-|new_user_id |new_address        |new_active_date           |new_inactive_date|
+|new_user_id |new_address        |new_active_date           |new_inactive_date      |
 +------------+-------------------+--------------------------+-----------------------+
 |1           |999 Someother Stree|2020-10-08 16:00:16.150026|3001-01-01 00:00:00    |
 |2           |2000 Snowflake Stre|2020-10-08 16:00:16.150026|3001-01-01 00:00:00    |
