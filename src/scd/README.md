@@ -1,7 +1,7 @@
 # Implementing ETL into a Slowly Changing Dimension Using Spark
 
 ## Purpose
-The purpose of this code is to prototype the implemenation of using PySpark to insert new data into a star schema that utilizes a slowly changing dimension. From this code, we hope to learn and address the obstacles of this ETL pattern.
+The purpose of this code is to prototype the implemenation of using PySpark to insert new data into a star schema that utilizes a slowly changing dimension (SCD). From this code, we hope to learn and address the obstacles of this ETL pattern.
 
 ## Setup
 The initial setup of this case contains a very small sample slowly changing dimension data set in its initial state:
@@ -76,7 +76,7 @@ Next, we perform a full outer join on the current (initial) state and the addres
 
 ```
 +-------+--------------------+----------+----------+--------------------------+--------------------------+-----------------+---------------------+--------------------------+-----------------------+
-|user_id|address             |is_current|is_deleted|active_date               |inactive_date             |new_user_id      |new_user_address     |new_user_active_date      |new_user_inactive_date |
+|user_id|address             |is_current|is_deleted|active_date               |inactive_date             |new_user_id      |new_address          |new_active_date           |new_inactive_date      |
 +-------+--------------------+----------+----------+--------------------------+--------------------------+-----------------+---------------------+--------------------------+-----------------------+
 |1      |123 Anywhere Street |false     |false     |2020-10-05 08:15:27.24386 |2020-10-05 10:22:31.938404|null             |null                 |null                      |null                   |
 |1      |999 Someother Street|true      |false     |2020-10-05 10:22:31.938404|3001-01-01 00:00:00       |1                |999 Someother Street |2020-10-08 16:00:16.150026|3001-01-01 00:00:00    |
@@ -91,7 +91,7 @@ Logic applied to both sides of the join results indicates how each row in the jo
 
 ```
 +-------+--------------------+----------+----------+--------------------------+--------------------------+-----------------+---------------------+--------------------------+-----------------------+--------+
-|user_id|address             |is_current|is_deleted|active_date               |inactive_date             |new_user_id      |new_user_address     |new_user_active_date      |new_user_inactive_date |action  |
+|user_id|address             |is_current|is_deleted|active_date               |inactive_date             |new_user_id      |new_address          |new_active_date           |new_inactive_date      |action  |
 +-------+--------------------+----------+----------+--------------------------+--------------------------+-----------------+---------------------+--------------------------+-----------------------+--------+
 |1      |123 Anywhere Street |false     |false     |2020-10-05 08:15:27.24386 |2020-10-05 10:22:31.938404|null             |null                 |null                      |null                   |NOACTION|
 |1      |999 Someother Street|true      |false     |2020-10-05 10:22:31.938404|3001-01-01 00:00:00       |1                |999 Someother Street |2020-10-08 16:00:16.150026|3001-01-01 00:00:00    |NOACTION|
@@ -118,8 +118,26 @@ These rows need to spawn two rows in the target data set:
 These rows need to be added to the target data set from the existing side of the full outer join, with the is_deleted flag set to 'True' and the state inactive date set to the current time.
 
 
-Finally, the four above resulting data sets get unioned together into a single data frame, which can be written to a table using the [Spark Dataframe write jdbc method](https://spark.apache.org/docs/latest/api/python/pyspark.sql.html#pyspark.sql.DataFrameWriter.jdbc). Examples of Azure JDBC connectivity can be found [here](https://docs.microsoft.com/en-us/azure/databricks/data/data-sources/sql-databases). The delta lake Python documentation can be found [here](https://docs.delta.io/0.4.0/api/python/index.html)
+Finally, the four above resulting data sets get unioned together into a single data frame, which successfully produces the expected output.
 
 ## Conclusions
- 
+This code demonstrates the following SCD cases can be handled at small scale in RAM:
 
+1. Perfect no change case - User ID 1
+2. Pefect change case - User ID 2
+3. Assumed delete case - User ID 3
+4. Perfect new data case - User ID 4.
+ 
+This example needs to be scaled out dramatically, as the full outer join may not perform well at scale - even on a partitioned data set or a set that needs to be partitioned at batch processing time. 
+
+This example also does not address writing via the Dataframe.write.jdbc method (see References below) which only allows a creation of a new table in a SQL database, the overwrite of an existing table, or appending to a new table. Appending to a new table does not help in this case. Overwriting or creating a new table may not work at scale, and may introduce concurrency issues.
+
+The new inplace update functionality provided by the Delta Lake enhancement seems to only apply to Parquet files on disk - not to data via the .jdbc connector. See below.
+
+Non-perfect cases should also be looked at: the same update coming in multiple times erroneously, updates coming in out of order, late arriving updates, etc. 
+
+
+## References
+1. [Spark Dataframe write jdbc method](https://spark.apache.org/docs/latest/api/python/pyspark.sql.html#pyspark.sql.DataFrameWriter.jdbc)
+2. [Azure JDBC connectivity](https://docs.microsoft.com/en-us/azure/databricks/data/data-sources/sql-databases)
+3. [Delta Lake Python documentation](https://docs.delta.io/0.4.0/api/python/index.html)
